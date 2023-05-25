@@ -33,59 +33,36 @@ struct VertexType
   glm::vec4 color;
 };
 
-float heightMap(const glm::vec2 position)
-{
-  return float(2.0 * sin(position.x) * sin(position.y));
-}
-
-VertexType getHeightMap(const glm::vec2 position)
-{
-  const glm::vec2 dx(1.0, 0.0);
-  const glm::vec2 dy(0.0, 1.0);
-
-  VertexType v;
-  float h = heightMap(position);
-  float hx = 100.f * (heightMap(position + 0.01f * dx) - h);
-  float hy = 100.f * (heightMap(position + 0.01f * dy) - h);
-
-  v.position = glm::vec3(position, h);
-  v.normal = glm::normalize(glm::vec3(-hx, -hy, 1.0));
-
-  float c = float(sin(h * 5.f) * 0.5 + 0.5);
-  v.color = glm::vec4(c, 1.0 - c, 1.0, 1.0);
-  return v;
-}
-
 SampleScene::SampleScene() : HoloPlayContext(capture_mouse)
 {
   glCheckError(__FILE__, __LINE__);
 
   // creation of the mesh ------------------------------------------------------
   std::vector<VertexType> vertices;
-  std::vector<GLuint> index;
+  std::vector<GLuint> indices;
 
-  for (unsigned int y = 0; y <= size; ++y)
-    for (unsigned int x = 0; x <= size; ++x)
-    {
-      float xx = (float(x) - float(size) / 2.0f) * 0.1f;
-      float yy = (float(y) - float(size) / 2.0f) * 0.1f;
-      vertices.push_back(getHeightMap({xx, yy}));
+  VertexType v;
+  v.normal = glm::vec3(0., 0., 1.);
+  v.color  = glm::vec4(0., 0., 1., 0.);
+
+  for (float x = -1.; x <= 1.; x += 2) {
+    for (float y = -1.; y <= 1.; y += 2) {
+      v.position = glm::vec3(x,  y, -1.);
+      vertices.push_back(v);
     }
+  }
 
-  for (unsigned int y = 0; y < size; ++y)
-    for (unsigned int x = 0; x < size; ++x)
-    {
-      index.push_back((x + 0) + (size + 1) * (y + 0));
-      index.push_back((x + 1) + (size + 1) * (y + 0));
-      index.push_back((x + 1) + (size + 1) * (y + 1));
-
-      index.push_back((x + 1) + (size + 1) * (y + 1));
-      index.push_back((x + 0) + (size + 1) * (y + 1));
-      index.push_back((x + 0) + (size + 1) * (y + 0));
-    }
-
+  // two triangles
+  indices.push_back(0);
+  indices.push_back(1);
+  indices.push_back(2);
+    
+  indices.push_back(1);
+  indices.push_back(2);
+  indices.push_back(3);
+  
   std::cout << "vertices=" << vertices.size() << std::endl;
-  std::cout << "index=" << index.size() << std::endl;
+  std::cout << "index=" << indices.size() << std::endl;
 
   // creation of the vertex array buffer----------------------------------------
 
@@ -99,8 +76,8 @@ SampleScene::SampleScene() : HoloPlayContext(capture_mouse)
   // ibo
   glGenBuffers(1, &ibo);
   glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo);
-  glBufferData(GL_ELEMENT_ARRAY_BUFFER, GLsizeiptr(index.size() * sizeof(GLuint)),
-               index.data(), GL_STATIC_DRAW);
+  glBufferData(GL_ELEMENT_ARRAY_BUFFER, GLsizeiptr(indices.size() * sizeof(GLuint)),
+               indices.data(), GL_STATIC_DRAW);
   glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
 
   // vao
@@ -158,9 +135,7 @@ SampleScene::SampleScene() : HoloPlayContext(capture_mouse)
         fColor = color;
         fNormal = vec3(view * vec4(normal,0.0));
 
-        gl_Position = projection * fPosition;
-        /*gl_Position.x *= 1000.0f;*/
-        /*gl_Position.y = 0.0;*/
+        // gl_Position = projection * fPosition;
     }
   )--";
   Shader vertexShader(GL_VERTEX_SHADER, vertexShaderSource);
@@ -318,7 +293,7 @@ void SampleScene::renderScene()
 
   glCheckError(__FILE__, __LINE__);
   glDrawElements(GL_TRIANGLES,        // mode
-                 GLsizei(size * size * 2 * 3), // count
+                 GLsizei(6), // count
                  GL_UNSIGNED_INT,     // type
                  NULL                 // element array buffer offset
   );

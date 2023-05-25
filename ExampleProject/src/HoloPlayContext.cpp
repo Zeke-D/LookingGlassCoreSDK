@@ -6,6 +6,7 @@
  *      * MIT
  */
 
+#include <initializer_list>
 #ifdef WIN32
 #pragma warning(disable : 4464 4820 4514 5045 4201 5039 4061 4710)
 #endif
@@ -19,9 +20,13 @@
 #include <glm/gtx/matrix_operation.hpp>
 #include <iostream>
 #include <stdexcept>
+#include <vector>
 
 #include "Shader.hpp"
 #include "glError.hpp"
+
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
 
 using namespace std;
 
@@ -75,6 +80,8 @@ HoloPlayContext::HoloPlayContext(bool capture_mouse)
       opengl_version_minor(3)
 {
   currentApplication = this;
+
+  timeSinceCompiled = 0;
 
   // get device info via holoplay core
   if (!GetLookingGlassInfo())
@@ -206,7 +213,7 @@ void HoloPlayContext::run()
     }
 
     // decide how camera updates here, override in SampleScene.cpp
-    glm::mat4 currentViewMatrix = getViewMatrixOfCurrentFrame();
+    // glm::mat4 currentViewMatrix = getViewMatrixOfCurrentFrame();
     glCheckError(__FILE__, __LINE__);
 
     // do the update
@@ -223,37 +230,11 @@ void HoloPlayContext::run()
     GLint viewport[4];
     glGetIntegerv(GL_VIEWPORT, viewport);
 
-    // get quilt view dimensions
-    int qs_viewWidth = int(float(qs_width) / float(qs_columns));
-    int qs_viewHeight = int(float(qs_height) / float(qs_rows));
+    glViewport(0, 0, qs_width, qs_height);
 
-    // render views and copy each view to the quilt
-    for (int viewIndex = 0; viewIndex < qs_totalViews; viewIndex++)
-    {
-        // get the x and y origin for this view
-        int x = (viewIndex % qs_columns) * qs_viewWidth;
-        int y = int(float(viewIndex) / float(qs_columns)) * qs_viewHeight;
-
-        // set the viewport to the view to control the projection extent
-        glViewport(x, y, qs_viewWidth, qs_viewHeight);
-
-        // set the scissor to the view to restrict calls like glClear from making modifications
-        glEnable(GL_SCISSOR_TEST);
-        glScissor(x, y, qs_viewWidth, qs_viewHeight);
-
-        // set up the camera rotation and position for current view
-        setupVirtualCameraForView(viewIndex, currentViewMatrix);
-
-        //render the scene according to the view
-        renderScene();
-
-        // reset viewport
-        glViewport(viewport[0], viewport[1], viewport[2], viewport[3]);
-
-        // restore scissor
-        glDisable(GL_SCISSOR_TEST);
-        glScissor(viewport[0], viewport[1], viewport[2], viewport[3]);
-    }
+    renderScene();
+    
+    glViewport(viewport[0],viewport[1],viewport[2],viewport[3]);
 
     // reset framebuffer
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -266,6 +247,25 @@ void HoloPlayContext::run()
 
     // Poll and process events
     glfwPollEvents();
+
+
+    // recompile sdf shader if it needs to be (do it every second)
+    if (autoRecompile && timeSinceCompiled > 1) {
+      for (auto &s : sdfShader->getShaders()) {
+        glDetachShader(sdfShader->getHandle(), s.getHandle());
+        glDeleteShader(s.getHandle());
+      }
+      Shader vertShader(GL_VERTEX_SHADER, (opengl_version_header + hpc_LightfieldVertShaderGLSL).c_str());
+      Shader fragShader("sdf_shader.glsl", GL_FRAGMENT_SHADER);
+      if (!fragShader.checkCompileError("sdf_shader.glsl")) {
+        // if we did not get an error, re-assign the shader
+        delete sdfShader;
+        sdfShader = new ShaderProgram({vertShader, fragShader});
+      }
+      timeSinceCompiled = 0;
+    }
+   
+    timeSinceCompiled += deltaTime;
   }
 
   glfwTerminate();
@@ -295,18 +295,27 @@ void HoloPlayContext::detectWindowChange()
 // =========================================================
 void HoloPlayContext::update()
 {
-  cout << "[INFO] : update" << endl;
+  // cout << "[INFO] : update" << endl;
   // implement update function in the child class
 }
 
 void HoloPlayContext::renderScene()
 {
-  cout << "[INFO] : render scene" << endl;
+  // hijack fullscreen quads
+  sdfShader->use();
+  sdfShader->setUniform("iTime", time);
+  sdfShader->setUniform("qs_columns", qs_columns);
+  sdfShader->setUniform("qs_rows", qs_rows);
+  sdfShader->setUniform("qs_width", qs_width);
+  sdfShader->setUniform("qs_height", qs_height);
+  glBindVertexArray(VAO);
+  glDrawArrays(GL_TRIANGLES, 0, 6);
+  sdfShader->unuse();
 }
 
 glm::mat4 HoloPlayContext::getViewMatrixOfCurrentFrame()
 {
-  cout << "[INFO] : update camera" << endl;
+  // cout << "[INFO] : update camera" << endl;
   return glm::mat4(1.0);
 }
 
@@ -315,7 +324,27 @@ glm::mat4 HoloPlayContext::getViewMatrixOfCurrentFrame()
 // ---------------------------------------------------------------------------------------------------------
 bool HoloPlayContext::processInput(GLFWwindow*)
 {
-  cout << "[INFO] : process input" << endl;
+  // cout << "[INFO] : process input" << endl;
+  // exit on escape
+  // if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) return false;
+  
+  if (glfwGetKey(window, GLFW_KEY_R) == GLFW_PRESS) {
+    cout << "Entering recompile mode" << std::endl;
+    autoRecompile = !autoRecompile;
+  }
+  
+  int new_debug = 0;
+
+  if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS)
+    new_debug = 1;
+
+  if (debug != new_debug)
+  {
+    debug = new_debug;
+    lightFieldShader->use();
+    lightFieldShader->setUniform("debug", debug);
+    lightFieldShader->unuse();
+  }
   return true;
 }
 
@@ -445,9 +474,7 @@ bool HoloPlayContext::GetLookingGlassInfo()
     cout << "\tTilt: " << hpc_GetDevicePropertyTilt(i) << endl;
     cout << "\tCenter: " << hpc_GetDevicePropertyCenter(i) << endl;
     cout << "\tSubpixel width: " << hpc_GetDevicePropertySubp(i) << endl;
-    cout << "\tView cone: "
-         << hpc_GetDevicePropertyFloat(i, "/calibration/viewCone/value")
-         << endl;
+    cout << "\tView cone: " << hpc_GetDevicePropertyFloat(i, "/calibration/viewCone/value") << endl;
     cout << "\tFringe: " << hpc_GetDevicePropertyFringe(i) << endl;
     cout << "\tRI: " << hpc_GetDevicePropertyRi(i)
          << "\n\tBI: " << hpc_GetDevicePropertyBi(i)
@@ -467,6 +494,28 @@ void HoloPlayContext::initialize()
   loadLightFieldShaders();
   glCheckError(__FILE__, __LINE__);
 
+  // load my custom shader
+  cout << "loading quilt shader" << endl;
+  Shader vertShader(GL_VERTEX_SHADER, (opengl_version_header + hpc_LightfieldVertShaderGLSL).c_str());
+  Shader fragShader("sdf_shader.glsl", GL_FRAGMENT_SHADER);
+  sdfShader = new ShaderProgram({vertShader, fragShader});
+  glCheckError(__FILE__, __LINE__);
+
+  int width, height, nrChannels;
+  unsigned char* data = stbi_load("images/rocky-small.jpg", &width, &height, &nrChannels, 0);
+
+  // load cubemap
+  vector<std::string> faces = {
+    "images/skybox/right.jpg",
+    "images/skybox/left.jpg",
+    "images/skybox/top.jpg",
+    "images/skybox/bottom.jpg",
+    "images/skybox/front.jpg",
+    "images/skybox/back.jpg"
+  };
+  
+  skyMap = loadCubemap(faces);
+  
   loadCalibrationIntoShader();
   glCheckError(__FILE__, __LINE__);
 
@@ -476,6 +525,27 @@ void HoloPlayContext::initialize()
 
   setupQuilt();
   glCheckError(__FILE__, __LINE__);
+}
+
+GLuint HoloPlayContext::loadCubemap(vector<std::string> faces) {
+  
+  GLuint cubemapID;
+  glGenTextures(1, &cubemapID);
+  glBindTexture(GL_TEXTURE_CUBE_MAP, cubemapID);
+
+  int width, height, nrChannels;
+  for (GLuint i = 0; i < faces.size(); i++) {
+    unsigned char* data = stbi_load(faces[i].c_str(), &width, &height, &nrChannels, 0);
+    if (data) {
+      glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, data);
+    }
+    else {
+      std::cout << "Failed to load cubemap with path \"" << faces[i] << "\"" << std::endl;
+    }
+    stbi_image_free(data);
+  }
+
+  return cubemapID;
 }
 
 // set up the quilt settings
@@ -495,9 +565,9 @@ void HoloPlayContext::setupQuiltSettings(int preset)
   case 1: // hires
     qs_width = 4096;
     qs_height = 4096;
-    qs_columns = 5;
-    qs_rows = 9;
-    qs_totalViews = 45;
+    qs_columns = 8;
+    qs_rows = 6;
+    qs_totalViews = 48;
     break;
   case 2: // 8k
     qs_width = 4096 * 2;
@@ -658,41 +728,6 @@ void HoloPlayContext::release()
   delete blitShader;
 }
 
-// render functions
-// =========================================================
-// set up the camera for each view and the shader of the rendering object
-void HoloPlayContext::setupVirtualCameraForView(int currentViewIndex,
-                                                glm::mat4 currentViewMatrix)
-{
-  // The standard model Looking Glass screen is roughly 4.75" vertically. If we
-  // assume the average viewing distance for a user sitting at their desk is
-  // about 36", our field of view should be about 14°. There is no correct
-  // answer, as it all depends on your expected user's distance from the Looking
-  // Glass, but we've found the most success using this figure.
-  const float fov = glm::radians(14.0f);
-  float cameraDistance = -cameraSize / tan(fov / 2.0f);
-
-  float offsetAngle =
-      (float(currentViewIndex) / (float(qs_totalViews) - 1.0f) - 0.5f) *
-      glm::radians(
-          viewCone); // start at -viewCone * 0.5 and go up to viewCone * 0.5
-
-  float offset =
-      cameraDistance *
-      tan(offsetAngle); // calculate the offset that the camera should move
-
-  // modify the view matrix (position)
-  // determine the local direction of the offset using currentViewMatrix and translate
-  glm::vec3 offsetLocal = glm::vec3(currentViewMatrix * glm::vec4(offset, 0.0f, cameraDistance, 1.0f));
-  viewMatrix = glm::translate(currentViewMatrix, offsetLocal);
-
-  float aspectRatio = getWindowRatio();
-
-  projectionMatrix = glm::perspective(fov, aspectRatio, 0.1f, 100.0f);
-  // modify the projection matrix, relative to the camera size and aspect ratio
-  projectionMatrix[2][0] += offset / (cameraSize * aspectRatio);
-}
-
 void HoloPlayContext::drawLightField()
 {
   // bind quilt texture
@@ -713,7 +748,7 @@ void HoloPlayContext::drawLightField()
 // Other helper functions
 // =======================================================================
 // open window at looking glass monitor
-GLFWwindow *HoloPlayContext::openWindowOnLKG()
+GLFWwindow* HoloPlayContext::openWindowOnLKG()
 {
   // Load GLFW and Create a Window
   glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);

@@ -43,23 +43,28 @@ void getFileContents(const char *filename, vector<char> &buffer)
   }
 }
 
-Shader::Shader(const std::string &filename, GLenum type)
+Shader::Shader(const std::string &file_name, GLenum type)
 {
-
-  // file loading
-  vector<char> fileContent;
-  getFileContents(filename.c_str(), fileContent);
+  filename = file_name.c_str();
 
   // creation
   handle = glCreateShader(type);
   if (handle == 0)
     throw std::runtime_error("[Error] Impossible to create a new Shader");
 
-  // code source assignation
-  const char *shaderText(&fileContent[0]);
+  compileFromSource();
+}
+
+void Shader::compileFromSource() {
+  if (handle == 0 || filename == NULL)
+    throw std::runtime_error("[Error] Cannot recompile shader");
+  
+  vector<char> fileContent;
+  getFileContents(filename, fileContent);
+
+  const char* shaderText(&fileContent[0]);
   glShaderSource(handle, 1, (const GLchar **)&shaderText, NULL);
 
-  // compilation
   glCompileShader(handle);
 
   checkCompileError(filename);
@@ -85,7 +90,7 @@ GLuint Shader::getHandle() const
   return handle;
 }
 
-void Shader::checkCompileError(std::string file)
+bool Shader::checkCompileError(std::string file)
 {
   // compilation check
   GLint compile_status;
@@ -103,12 +108,12 @@ void Shader::checkCompileError(std::string file)
     cout << "[Error] compilation error: " << file << endl;
     cout << log << endl;
 
-    exit(EXIT_FAILURE);
+    // exit(EXIT_FAILURE);
+    return true;
   }
-  else
-  {
-    cout << "[Shader] Shader " << file << " compiled successfully" << endl;
-  }
+  
+  cout << "[Shader] Shader " << file << " compiled successfully" << endl;
+  return false;
 }
 
 Shader::~Shader() {}
@@ -123,10 +128,15 @@ ShaderProgram::ShaderProgram()
 ShaderProgram::ShaderProgram(std::initializer_list<Shader> shaderList)
     : ShaderProgram()
 {
-  for (auto &s : shaderList)
+  shaders = shaderList;
+  for (auto &s : shaders)
     glAttachShader(handle, s.getHandle());
 
   link();
+}
+
+std::initializer_list<Shader> ShaderProgram::getShaders() {
+  return shaders;
 }
 
 void ShaderProgram::link()

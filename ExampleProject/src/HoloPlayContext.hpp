@@ -13,6 +13,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtx/matrix_operation.hpp>
 #include <string>
+#include <vector>
 #include "HoloPlayCore.h"
 #include "Shader.hpp"
 
@@ -72,6 +73,8 @@ private:
 
     State state;
 
+    int debug;
+
     HoloPlayContext &operator=(const HoloPlayContext &) { return *this; }
 
     GLFWwindow *window;
@@ -100,7 +103,12 @@ protected:
     // Time:
     float time;
     float deltaTime;
+    float timeSinceCompiled;
 
+    bool autoRecompile; // determines whether or not to recompile shaders automatically
+
+    GLuint skyMap; // gl texture id of cubemap for skybox
+    
     // lkg related:
     const int DEV_INDEX = 0; // the index of device we are rendering on,
                              // default is 0, the first Looking Glass detected
@@ -121,11 +129,12 @@ protected:
     // qs_viewWidth & qs_viewHeight could be calculated by given numbers
 
     // shaders:
-    ShaderProgram *lightFieldShader =
+    ShaderProgram* lightFieldShader =
         NULL; // The shader program for drawing light field images to the Looking
               // Glass
-    ShaderProgram *blitShader =
+    ShaderProgram* blitShader =
         NULL; // The shader program for copying views to the quilt
+    ShaderProgram* sdfShader = NULL; // the program for drawing my scene
 
     // render var
     unsigned int
@@ -143,6 +152,7 @@ protected:
     // set up functions
     void initialize(); // calls all the functions necessary to set up the
                        // HoloPlay Context
+    GLuint loadCubemap(std::vector<std::string> faces);
     void setupQuilt(); // create the quiltTexture, VBO, VAO, and FBO
     void setupQuiltSettings(
         int preset);                  // Set up the quilt settings according to the preset passed

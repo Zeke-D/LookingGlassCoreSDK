@@ -25,14 +25,20 @@ public:
 
   // provide opengl shader identifiant.
   GLuint getHandle() const;
+  
+  // hot reload helper
+  void compileFromSource();
 
-  void checkCompileError(std::string file);
+
+  // returns true if error
+  bool checkCompileError(std::string file);
 
   ~Shader();
 
 private:
   // opengl program identifiant
   GLuint handle;
+  const char* filename;
 
   friend class ShaderProgram;
 };
@@ -54,6 +60,7 @@ public:
 
   // provide the opengl identifiant
   GLuint getHandle() const;
+  std::initializer_list<Shader> getShaders();
 
   // clang-format off
   // provide attributes informations.
@@ -91,6 +98,7 @@ private:
 
   // opengl id
   GLuint handle;
+  std::initializer_list<Shader> shaders;
 
   void link();
 };
