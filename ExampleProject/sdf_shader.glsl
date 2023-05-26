@@ -1,3 +1,5 @@
+#version 330 core
+    
 uniform float iTime;
 uniform int qs_rows;
 uniform int qs_columns;
@@ -140,7 +142,7 @@ vec2 model(vec3 point) {
     p.xz *= .8 * clamp(1. - p.y, 0., 1.);
     p *= 1.2;
     // a l'il sway
-    p.x += p.y * .3 * sin(iTime + (.1 + treeCenter.x) * 320.1737 * treeCenter.z);
+    // p.x += p.y * .3 * sin(iTime + (.1 + treeCenter.x) * 320.1737 * treeCenter.z);
     p.x +=  .3 + .2* sin(treeCenter.z * 10. );
     
     float tree = sphere(p, radius) * 1.3;
@@ -168,8 +170,8 @@ vec2 model(vec3 point) {
     // leaves
     vec3 lScale = vec3(10.);
     vec3 shift = vec3(
-        .05 * sin(.428 * iTime) * length(point - mainTreeCenter) + .25 * (.2-point.z),
-        .01 * sin(.4 * iTime) + .25 * point.x,
+        .05 * length(point - mainTreeCenter) + .25 * (.2-point.z),
+        .01 + .25 * point.x,
         0.
     );
     
@@ -230,13 +232,16 @@ vec2 model(vec3 point) {
     return vec2(d, mat);
 }
 
+struct Hit {
+    vec3 position;
+    vec3 normal;
+    float material;
+};
+    
 #define MAX_STEPS 40
 #define MIN_DIST 0.008 // fine tune for better perf
 #define MAX_DIST 20.
-// ray marches the scene
-vec3 scene(vec3 ro, vec3 ray_dir) {
-    vec3 color = vec3(0);
-    
+Hit rayMarchScene(vec3 ro, vec3 ray_dir) {
     vec3 p = ro;
     vec2 res = model(p);
     float dist_travelled = 0.;
@@ -247,6 +252,13 @@ vec3 scene(vec3 ro, vec3 ray_dir) {
         dist_travelled += res.x;
     }
 
+    return Hit(p, calcNormal(p), res.y);
+}
+
+// ray marches the scene
+vec3 scene(Hit hit) {
+    vec3 color = vec3(0);
+
     const vec3 deepBlue = vec3(0.000,0.184,0.180);
     const vec3 copper = vec3(1.000,0.502,0.251);
     const vec3 dirtBrown = vec3(0.141,0.141,0.059);
@@ -256,10 +268,9 @@ vec3 scene(vec3 ro, vec3 ray_dir) {
     const vec3 skyBlue = vec3(.4, .6, 1.);
     const vec3 barkRed = vec3(48., 10., 5.) / 255.;
     const vec3 leafColor = green; // TODO: make uniform
-    
-    
+       
     // SKY render
-    if (dist_travelled >= MAX_DIST) {
+    if (hit.position.z >= MAX_DIST) {
         return vec3(0.05);
         return skyBlue;
         // return texture(iChannel1, ray_dir).rgb;
@@ -267,69 +278,65 @@ vec3 scene(vec3 ro, vec3 ray_dir) {
     }
     
     vec3 lightPos = vec3(-1, 2, -2);
-    vec3 normal = calcNormal(p);
-    float lightContrib = max(0., dot(normalize(lightPos), normal));
+    float lightContrib = max(0., dot(normalize(lightPos), hit.normal));
      
-    // result's y contains material info
-    if (res.y < DIRT + .5) {
+    // result's y contains hit.materialerial info
+    if (hit.material < DIRT + .5) {
         color = mix(dirtBrown, copper, lightContrib);
         color = mix(deepBlue, color, color.r * 1.2);
         color.r += .2;
         color.b += .2;
         color = color * .24;
     }
-    else if (res.y < GRASS + .5) {
+    else if (hit.material < GRASS + .5) {
         color = mix(
-            barkRed, mix(deepBlue, copper * .6, .2 + .8 * sin(p.z * 10.)), lightContrib)
+            barkRed, mix(deepBlue, copper * .6, .2 + .8 * sin(hit.position.z * 10.)), lightContrib)
         
            + .4 * warmHighlight * pow(lightContrib, 4.) // soft specular
            + .1 * warmHighlight * pow(lightContrib, 10.) // harsh specular
            ;
     }
-    else if (res.y < TREE + .5) {
+    else if (hit.material < TREE + .5) {
         color = mix(deepBlue, green, lightContrib)
            + .4 * warmHighlight * pow(lightContrib, 4.) // soft specular
            + .1 * warmHighlight * pow(lightContrib, 10.) // harsh specular
            ;
         // more color falloff for mini tree contrast
-        color = mix(color * 1.2, deepBlue * .1, (.2 - p.y * 2.) * (1. - p.z));
-        color = mix(color, color * vec3(1.2, 1.5, .8), -.4 * p.x);
+        color = mix(color * 1.2, deepBlue * .1, (.2 - hit.position.y * 2.) * (1. - hit.position.z));
+        color = mix(color, color * vec3(1.2, 1.5, .8), -.4 * hit.position.x);
     }
-    else if (res.y < MAINTREE + .5) {
+    else if (hit.material < MAINTREE + .5) {
         color = mix(
             deepBlue * .5, barkRed, .5 + lightContrib)
            + .8 * copper * pow(lightContrib, 4.) // soft specular
            ;
         // color *= vec3(.7, .5, 1.2);
-        // color = mix(color, color * vec3(.6, .2, .8), sin(p.y * 127. * p.x) + sin(p.x * 2010.));
+        // color = mix(color, color * vec3(.6, .2, .8), sin(hit.position.y * 127. * hit.position.x) + sin(hit.position.x * 2010.));
     }
-    else if (res.y < RAIN + .5) {
+    else if (hit.material < RAIN + .5) {
         color += vec3(.5, .9, 1.);
     }
-    else if (res.y < LEAVES + .5) {
+    else if (hit.material < LEAVES + .5) {
         color = mix(vec3(0.0, .2, .1), vec3(0.2, 1., .1), lightContrib);
-        color = mix(color, deepBlue * .7, 1.2 - 2. * p.y);
+        color = mix(color, deepBlue * .7, 1.2 - 2. * hit.position.y);
     }
     else {
         return debugPink;
     }
     
-    //color = vec3(.4 * dot(vec3(-1, 1, -2), normal));
-    // color = texture(iChannel1, reflect(ray_dir, normal)).rgb;
-    // color += .5 * clamp(skyBlue * (.1 - p.y * 2.), vec3(0), vec3(1)); // fog
+    // color += .5 * clamp(skyBlue * (.1 - hit.position.y * 2.), vec3(0), vec3(1)); // fog
     
     // atmospheric attenuation
     // return vec3(1. - dist_travelled / 4.); // render depth map
     vec3 atmosphericColor = vec3(.1, .1, .2);
-    color = mix(color, atmosphericColor, dist_travelled / MAX_DIST);
-    
+    color = mix(color, atmosphericColor, hit.position.z / MAX_DIST);
     
     return color;
 }
 
 void main() {
 
-    // setup shadertoy constants for LKG
+    // setup ShaderToy constants for LKG
     vec2 iResolution = vec2(qs_width, qs_height);
     float numRows = float(qs_rows);
     float numCols = float(qs_columns);
@@ -340,12 +347,8 @@ void main() {
     vec2 index = vec2(floor(texCoords.x * numCols),
                       floor(texCoords.y * numRows));
               
-    // convert 2D index to 1D
+    // convert 2D index to 1D, flatIndex is from 0 -> 1
     float flatIndex = (index.y * numCols + index.x) / (numRows * numCols);
-    // flatIndex is from 0 -> 1
-    
-    // TODO: figure out math to make this shift be optimal for LKG display
-    // using trigonometry based on FOV. For now, horizontal range guess & check is fine
     vec3 leftShift = vec3(1.17, 0., 0.) * (flatIndex - .5);
     
     vec3 moveForward = 0. * vec3(0, 0, 1) * iTime;
@@ -356,7 +359,9 @@ void main() {
     vec3 ray_destination = vec3(uv * focal_plane_dimensions, ro.z + 1.3);
     vec3 ray_dir = normalize(ray_destination - ro);
 
-    vec3 sceneColor = scene(ro, ray_dir);
+    Hit hit = rayMarchScene(ro, ray_dir);
+    
+    vec3 sceneColor = scene(hit);
 
     // sceneColor *= 1.2;
     
