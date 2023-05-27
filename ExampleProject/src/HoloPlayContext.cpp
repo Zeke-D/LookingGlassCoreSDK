@@ -256,11 +256,12 @@ void HoloPlayContext::run()
         glDeleteShader(s.getHandle());
       }
       Shader vertShader(GL_VERTEX_SHADER, (opengl_version_header + hpc_LightfieldVertShaderGLSL).c_str());
-      Shader fragShader("sdf_shader.glsl", GL_FRAGMENT_SHADER);
-      if (!fragShader.checkCompileError("sdf_shader.glsl")) {
+      Shader fragShader("../sdf_shader.glsl", GL_FRAGMENT_SHADER);
+      if (!fragShader.checkCompileError("../sdf_shader.glsl")) {
         // if we did not get an error, re-assign the shader
         delete sdfShader;
         sdfShader = new ShaderProgram({vertShader, fragShader});
+        renderHitBuffers();
       }
       timeSinceCompiled = 0;
     }
@@ -299,11 +300,14 @@ void HoloPlayContext::update()
   // implement update function in the child class
 }
 
-void HoloPlayContext::renderScene()
-{
-  // hijack fullscreen quads
+
+void HoloPlayContext::renderHitBuffers() {
+  // GLint curFBO;
+  // glGetIntegerv(GL_FRAMEBUFFER_BINDING, &curFBO);
+  glBindFramebuffer(GL_FRAMEBUFFER, hitFBO);
+  glClear(GL_COLOR_BUFFER_BIT);
+  glClearColor(0.0, 0.0, 0.0, 1.0);
   sdfShader->use();
-  sdfShader->setUniform("iTime", time);
   sdfShader->setUniform("qs_columns", qs_columns);
   sdfShader->setUniform("qs_rows", qs_rows);
   sdfShader->setUniform("qs_width", qs_width);
@@ -311,6 +315,31 @@ void HoloPlayContext::renderScene()
   glBindVertexArray(VAO);
   glDrawArrays(GL_TRIANGLES, 0, 6);
   sdfShader->unuse();
+  // glBindFramebuffer(GL_FRAMEBUFFER, curFBO);
+}
+
+void HoloPlayContext::renderScene()
+{
+  
+  renderHitBuffers();
+  
+  // write to quilt texture
+  colorShader->use();
+  colorShader->setUniform("iTime", time);
+  // uniform layout locations not supported in 3.3, set manually
+  colorShader->setUniform("posMatTex", 0);
+  colorShader->setUniform("normalTex", 1);
+  glBindVertexArray(VAO);
+  // bind our precomputed textures
+  for (GLuint i = 0; i < 2; i++) {
+    glActiveTexture(GL_TEXTURE0 + i);
+    glBindTexture(GL_TEXTURE_2D, hitAttachments[i]);
+  }
+  glDrawArrays(GL_TRIANGLES, 0, 6);
+  glCheckError(__FILE__, __LINE__);
+  colorShader->unuse();
+  
+  glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
 
 glm::mat4 HoloPlayContext::getViewMatrixOfCurrentFrame()
@@ -488,8 +517,11 @@ bool HoloPlayContext::GetLookingGlassInfo()
 // =========================================================
 void HoloPlayContext::initialize()
 {
+  autoRecompile = false;
   cout << "[Info] initializing" << endl;
   glfwMakeContextCurrent(window);
+  
+  setupQuiltSettings(1);
 
   loadLightFieldShaders();
   glCheckError(__FILE__, __LINE__);
@@ -497,10 +529,83 @@ void HoloPlayContext::initialize()
   // load my custom shader
   cout << "loading quilt shader" << endl;
   Shader vertShader(GL_VERTEX_SHADER, (opengl_version_header + hpc_LightfieldVertShaderGLSL).c_str());
-  Shader fragShader("sdf_shader.glsl", GL_FRAGMENT_SHADER);
+  Shader fragShader("../sdf_shader.glsl", GL_FRAGMENT_SHADER);
   sdfShader = new ShaderProgram({vertShader, fragShader});
   glCheckError(__FILE__, __LINE__);
+  
+  Shader colShader("../color.glsl", GL_FRAGMENT_SHADER);
+  colorShader = new ShaderProgram( { vertShader, colShader } );
+  glCheckError(__FILE__, __LINE__);
 
+
+  // WORKING
+  // inspired by https://ogldev.org/www/tutorial35/tutorial35.html
+  // setup custom precomputation shader to precompute sdf hits
+  glGenFramebuffers(1, &hitFBO);
+  glBindFramebuffer(GL_FRAMEBUFFER, hitFBO);
+  glGenTextures(2, hitAttachments);
+  
+  for (GLuint i = 0; i < 2; i++) {
+    glBindTexture(GL_TEXTURE_2D, hitAttachments[i]);
+    glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glCheckError(__FILE__, __LINE__);
+    cout << GL_RGBA32F << " " << qs_width << " " << qs_height << endl;
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, qs_width, qs_height, 0, GL_RGBA, GL_FLOAT, NULL);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + i, GL_TEXTURE_2D, 
+      hitAttachments[i], 0);
+  }
+  cout << "done binding attachments" << endl;
+  
+  // add depth texture
+  // GLuint depth;
+  // glGenTextures(1, &depth);
+  // glBindTexture(GL_TEXTURE_2D, depth);
+  // glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT32F, qs_width, qs_height, 0, GL_DEPTH_COMPONENT, GL_FLOAT,
+  //                 NULL);
+  // glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, depth, 0);
+  
+  // enable writing to the buffers
+  GLenum writeableAttachments[] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1 };
+  glDrawBuffers(2, writeableAttachments );
+
+  // make sure it went well
+  GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+  switch (status) {
+    case GL_FRAMEBUFFER_COMPLETE:
+      cout << "Finished setting up framebuffers!" << endl;
+      break;
+    case GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT:
+      cout << "Incomplete attachment." << endl;
+      break;
+    case GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT:
+      cout << "Missing attachment." << endl;
+      break;
+    case GL_FRAMEBUFFER_INCOMPLETE_DRAW_BUFFER:
+      cout << "Incomplete drawbuffer." << endl;
+      break;
+    case GL_FRAMEBUFFER_INCOMPLETE_READ_BUFFER:
+      cout << "Incomplete read buffer." << endl;
+      break;
+    case GL_FRAMEBUFFER_UNSUPPORTED:
+      cout << "Format not support." << endl;
+      break;
+    case GL_FRAMEBUFFER_INCOMPLETE_MULTISAMPLE:
+      cout << "Incomplete multisample." << endl;
+      break;
+    case GL_FRAMEBUFFER_INCOMPLETE_LAYER_TARGETS:
+      cout << "Incomplete layer targets." << endl;
+      break;
+    default:
+      cout << "Unknown error setting up hit framebuffers." << endl;
+      break;
+  }
+  
+  // unbind FBO
+  glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+  /*
+  TODO: get cubemap working
   int width, height, nrChannels;
   unsigned char* data = stbi_load("images/rocky-small.jpg", &width, &height, &nrChannels, 0);
 
@@ -515,11 +620,11 @@ void HoloPlayContext::initialize()
   };
   
   skyMap = loadCubemap(faces);
+  */
   
   loadCalibrationIntoShader();
   glCheckError(__FILE__, __LINE__);
 
-  setupQuiltSettings(1);
   passQuiltSettingsToShader();
   glCheckError(__FILE__, __LINE__);
 
@@ -620,8 +725,7 @@ void HoloPlayContext::setupQuilt()
   glBindFramebuffer(GL_FRAMEBUFFER, FBO);
 
   // bind the quilt texture as the color attachment of the framebuffer
-  glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
-                         quiltTexture, 0);
+  glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, quiltTexture, 0);
 
   // vbo and vao
   glGenVertexArrays(1, &VAO);
@@ -726,6 +830,10 @@ void HoloPlayContext::release()
   glDeleteTextures(1, &quiltTexture);
   delete lightFieldShader;
   delete blitShader;
+
+  glDeleteFramebuffers(1, &hitFBO);
+  glDeleteTextures(2, hitAttachments);
+  delete sdfShader;
 }
 
 void HoloPlayContext::drawLightField()

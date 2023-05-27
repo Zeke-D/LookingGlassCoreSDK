@@ -22,7 +22,7 @@ int main(int argc, const char *argv[])
   UNUSED(argc);
   UNUSED(argv);
 
-  HoloPlayContext hpc;
-  hpc.run();
+  HoloPlayContext* hpc = new HoloPlayContext(false);
+  hpc->run();
   return 0;
 }

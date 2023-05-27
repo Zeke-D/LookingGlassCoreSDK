@@ -78,6 +78,8 @@ private:
     HoloPlayContext &operator=(const HoloPlayContext &) { return *this; }
 
     GLFWwindow *window;
+    
+    void renderHitBuffers();
 
     // Window dimensions:
     int win_w;
@@ -134,7 +136,18 @@ protected:
               // Glass
     ShaderProgram* blitShader =
         NULL; // The shader program for copying views to the quilt
-    ShaderProgram* sdfShader = NULL; // the program for drawing my scene
+    ShaderProgram* sdfShader   = NULL; // the program for precomputing my scene
+    ShaderProgram* colorShader = NULL; // the program for coloring my scene
+
+
+    // we need framebuffers for precomputation
+    GLuint hitFBO;
+    // attachments for each datum of Hit
+    // GLuint positionMaterialAttachment; // RGBA = 4f = 3f (xyz) + 1f (material_id)
+    // GLuint normalAttachment; // RGBA, xyz wasting A
+    GLuint hitAttachments[2];
+    
+    
 
     // render var
     unsigned int
@@ -146,6 +159,7 @@ protected:
                       // quilt and screen
     unsigned int FBO; // The frame buffer object used internally to blit views to
                       // the quilt
+
 
     // example implementation for rendering 45 views
     // ====================================================================================
