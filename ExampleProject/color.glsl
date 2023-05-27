@@ -106,12 +106,11 @@ uniform sampler2D normalTex;
 void main() {
 
     vec4 posMat = texture(posMatTex, texCoords);
-    vec3 normal = texture(normalTex, texCoords).rgb;
+    vec4 normal = texture(normalTex, texCoords);
     
-    Hit hit = Hit(posMat.xyz, normal, posMat.a);
-    vec3 sceneColor = scene(hit);
+    Hit hit = Hit(posMat.rgb, normal.rgb, normal.a);
+    vec3 col = scene(hit);
 
-    // sceneColor *= 1.2;
-    fragColor = vec4(sceneColor, 1.);
+    fragColor = vec4(col, 1.);
     // fragColor.rgb = posMat.aaa;
 }

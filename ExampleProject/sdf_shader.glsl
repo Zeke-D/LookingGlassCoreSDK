@@ -284,6 +284,6 @@ void main() {
     
     // posMatOut = vec4(hit.position, hit.material / NUM_MATERIALS);
     posMatOut = vec4(hit.position, hit.material / NUM_MATERIALS);
-    normalOut = vec4(hit.normal, 1.);
+    normalOut = vec4(hit.normal, hit.material / NUM_MATERIALS);
     
 }

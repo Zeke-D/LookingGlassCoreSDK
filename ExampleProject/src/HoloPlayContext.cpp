@@ -53,6 +53,40 @@ HoloPlayContext &getInstance()
     throw std::runtime_error("There is no current Application");
 }
 
+static void external_key_callback(GLFWwindow* window, int key, int scancode, int action, int mods) {
+  getInstance().key_callback(window, key, scancode, action, mods);
+}
+
+
+void HoloPlayContext::key_callback(GLFWwindow* window, int key, int scancode, int action, int mods) {
+  if (glfwGetKey(window, GLFW_KEY_Q) == GLFW_PRESS) exit();
+  if (glfwGetKey(window, GLFW_KEY_R) == GLFW_PRESS) {
+    cout << "Recomputing hit buffers" << endl;
+    glCheckError(__FILE__, __LINE__);
+    /*
+    for (auto &s : sdfShader->getShaders()) {
+      glDetachShader(sdfShader->getHandle(), s.getHandle());
+      glCheckError(__FILE__, __LINE__);
+      glDeleteShader(s.getHandle());
+      glCheckError(__FILE__, __LINE__);
+    }
+    */
+    Shader vertShader(GL_VERTEX_SHADER, (opengl_version_header + hpc_LightfieldVertShaderGLSL).c_str());
+    Shader fragShader("../sdf_shader.glsl", GL_FRAGMENT_SHADER);
+    if (!fragShader.checkCompileError("../sdf_shader.glsl")) {
+      // if we did not get an error, re-assign the shader
+      delete sdfShader;
+          sdfShader = new ShaderProgram({vertShader, fragShader});
+      renderHitBuffers();
+      cout << "Done hit buffers" << endl;
+    }
+    glCheckError(__FILE__, __LINE__);
+    
+    // cout << "Entering recompile mode" << std::endl;
+    // autoRecompile = !autoRecompile;
+  }
+}
+
 // wrapper for getting mouse movement callback
 static void external_mouse_callback(GLFWwindow *window,
                                     double xpos,
@@ -130,6 +164,7 @@ HoloPlayContext::HoloPlayContext(bool capture_mouse)
   // set up the cursor callback
   glfwSetCursorPosCallback(window, external_mouse_callback);
   glfwSetScrollCallback(window, external_scroll_callback);
+  glfwSetKeyCallback(window, external_key_callback);
 
   if (capture_mouse)
   {
@@ -163,6 +198,7 @@ HoloPlayContext::HoloPlayContext(bool capture_mouse)
 
   // initialize the holoplay context
   initialize();
+  renderHitBuffers();
 }
 
 HoloPlayContext::~HoloPlayContext()
@@ -249,24 +285,24 @@ void HoloPlayContext::run()
     glfwPollEvents();
 
 
-    // recompile sdf shader if it needs to be (do it every second)
-    if (autoRecompile && timeSinceCompiled > 1) {
-      for (auto &s : sdfShader->getShaders()) {
-        glDetachShader(sdfShader->getHandle(), s.getHandle());
-        glDeleteShader(s.getHandle());
-      }
-      Shader vertShader(GL_VERTEX_SHADER, (opengl_version_header + hpc_LightfieldVertShaderGLSL).c_str());
-      Shader fragShader("../sdf_shader.glsl", GL_FRAGMENT_SHADER);
-      if (!fragShader.checkCompileError("../sdf_shader.glsl")) {
-        // if we did not get an error, re-assign the shader
-        delete sdfShader;
-        sdfShader = new ShaderProgram({vertShader, fragShader});
-        renderHitBuffers();
-      }
-      timeSinceCompiled = 0;
-    }
+  //   // recompile sdf shader if it needs to be (do it every second)
+  //   if (autoRecompile && timeSinceCompiled > 1) {
+  //     for (auto &s : sdfShader->getShaders()) {
+  //       glDetachShader(sdfShader->getHandle(), s.getHandle());
+  //       glDeleteShader(s.getHandle());
+  //     }
+  //     Shader vertShader(GL_VERTEX_SHADER, (opengl_version_header + hpc_LightfieldVertShaderGLSL).c_str());
+  //     Shader fragShader("../sdf_shader.glsl", GL_FRAGMENT_SHADER);
+  //     if (!fragShader.checkCompileError("../sdf_shader.glsl")) {
+  //       // if we did not get an error, re-assign the shader
+  //       delete sdfShader;
+  //       sdfShader = new ShaderProgram({vertShader, fragShader});
+  //       renderHitBuffers();
+  //     }
+  //     timeSinceCompiled = 0;
+  //   }
    
-    timeSinceCompiled += deltaTime;
+  //   timeSinceCompiled += deltaTime;
   }
 
   glfwTerminate();
@@ -305,8 +341,11 @@ void HoloPlayContext::renderHitBuffers() {
   // GLint curFBO;
   // glGetIntegerv(GL_FRAMEBUFFER_BINDING, &curFBO);
   glBindFramebuffer(GL_FRAMEBUFFER, hitFBO);
-  glClear(GL_COLOR_BUFFER_BIT);
-  glClearColor(0.0, 0.0, 0.0, 1.0);
+  // glClearColor(0.0, 0.0, 0.0, 0.0);
+  // glClear(GL_COLOR_BUFFER_BIT);
+  GLint viewport[4];
+  glGetIntegerv(GL_VIEWPORT, viewport);
+  glViewport(0, 0, qs_width, qs_height);
   sdfShader->use();
   sdfShader->setUniform("qs_columns", qs_columns);
   sdfShader->setUniform("qs_rows", qs_rows);
@@ -315,31 +354,39 @@ void HoloPlayContext::renderHitBuffers() {
   glBindVertexArray(VAO);
   glDrawArrays(GL_TRIANGLES, 0, 6);
   sdfShader->unuse();
+  glCheckError(__FILE__, __LINE__);
+  glViewport(viewport[0],viewport[1],viewport[2],viewport[3]);
+  glBindFramebuffer(GL_FRAMEBUFFER, 0);
   // glBindFramebuffer(GL_FRAMEBUFFER, curFBO);
 }
 
 void HoloPlayContext::renderScene()
 {
-  
-  renderHitBuffers();
-  
-  // write to quilt texture
+
+  glCheckError(__FILE__, __LINE__);
+  glBindVertexArray(VAO);
+  glBindFramebuffer(GL_FRAMEBUFFER, FBO);
+  for (GLuint i = 0; i < 2; i++) {
+    glActiveTexture(GL_TEXTURE0 + i);
+    glBindTexture(GL_TEXTURE_2D, hitAttachments[i]);
+  }
   colorShader->use();
   colorShader->setUniform("iTime", time);
   // uniform layout locations not supported in 3.3, set manually
   colorShader->setUniform("posMatTex", 0);
   colorShader->setUniform("normalTex", 1);
-  glBindVertexArray(VAO);
-  // bind our precomputed textures
-  for (GLuint i = 0; i < 2; i++) {
-    glActiveTexture(GL_TEXTURE0 + i);
-    glBindTexture(GL_TEXTURE_2D, hitAttachments[i]);
-  }
   glDrawArrays(GL_TRIANGLES, 0, 6);
   glCheckError(__FILE__, __LINE__);
   colorShader->unuse();
   
-  glBindFramebuffer(GL_FRAMEBUFFER, 0);
+  /*
+  glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+  glBindFramebuffer(GL_READ_FRAMEBUFFER, FBO);
+  glReadBuffer(GL_COLOR_ATTACHMENT0);
+  glBlitFramebuffer(0, 0, qs_width, qs_height, 
+    0, 0, qs_width / qs_columns *3., qs_height / qs_rows * 3., 
+    GL_COLOR_BUFFER_BIT, GL_LINEAR);
+  */
 }
 
 glm::mat4 HoloPlayContext::getViewMatrixOfCurrentFrame()
@@ -356,11 +403,6 @@ bool HoloPlayContext::processInput(GLFWwindow*)
   // cout << "[INFO] : process input" << endl;
   // exit on escape
   // if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) return false;
-  
-  if (glfwGetKey(window, GLFW_KEY_R) == GLFW_PRESS) {
-    cout << "Entering recompile mode" << std::endl;
-    autoRecompile = !autoRecompile;
-  }
   
   int new_debug = 0;
 
@@ -555,15 +597,6 @@ void HoloPlayContext::initialize()
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + i, GL_TEXTURE_2D, 
       hitAttachments[i], 0);
   }
-  cout << "done binding attachments" << endl;
-  
-  // add depth texture
-  // GLuint depth;
-  // glGenTextures(1, &depth);
-  // glBindTexture(GL_TEXTURE_2D, depth);
-  // glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT32F, qs_width, qs_height, 0, GL_DEPTH_COMPONENT, GL_FLOAT,
-  //                 NULL);
-  // glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, depth, 0);
   
   // enable writing to the buffers
   GLenum writeableAttachments[] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1 };
@@ -710,7 +743,7 @@ void HoloPlayContext::setupQuilt()
   glGenTextures(1, &quiltTexture);
   glBindTexture(GL_TEXTURE_2D, quiltTexture);
 
-  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, qs_width, qs_height, 0, GL_RGB,
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, qs_width, qs_height, 0, GL_RGBA,
                GL_UNSIGNED_BYTE, NULL);
 
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
@@ -839,6 +872,7 @@ void HoloPlayContext::release()
 void HoloPlayContext::drawLightField()
 {
   // bind quilt texture
+  glActiveTexture(GL_TEXTURE0);
   glBindTexture(GL_TEXTURE_2D, quiltTexture);
 
   // bind vao

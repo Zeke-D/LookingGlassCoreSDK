@@ -62,6 +62,7 @@ public:
     virtual void scroll_callback(GLFWwindow *window,
                                  double xoffset,
                                  double yoffset);
+    virtual void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods);
 
 private:
     enum class State
