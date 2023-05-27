@@ -63,24 +63,23 @@ void HoloPlayContext::key_callback(GLFWwindow* window, int key, int scancode, in
   if (glfwGetKey(window, GLFW_KEY_R) == GLFW_PRESS) {
     cout << "Recomputing hit buffers" << endl;
     glCheckError(__FILE__, __LINE__);
-    /*
-    for (auto &s : sdfShader->getShaders()) {
-      glDetachShader(sdfShader->getHandle(), s.getHandle());
-      glCheckError(__FILE__, __LINE__);
-      glDeleteShader(s.getHandle());
-      glCheckError(__FILE__, __LINE__);
+    const char* shaderPaths[2] = { "../sdf_shader.glsl", "../color.glsl" };
+    ShaderProgram** shaders[2] = { &sdfShader, &colorShader };
+    for (int i = 0; i < 2; i++) {
+      const char* shaderPath = shaderPaths[i];
+      Shader vertShader(GL_VERTEX_SHADER, (opengl_version_header + hpc_LightfieldVertShaderGLSL).c_str());
+      Shader fragShader(shaderPath, GL_FRAGMENT_SHADER);
+      if (!fragShader.checkCompileError(shaderPath)) {
+        // if we did not get an error, re-assign the shader
+        delete *shaders[i];
+        *shaders[i] = new ShaderProgram({vertShader, fragShader});
+      }
     }
-    */
-    Shader vertShader(GL_VERTEX_SHADER, (opengl_version_header + hpc_LightfieldVertShaderGLSL).c_str());
-    Shader fragShader("../sdf_shader.glsl", GL_FRAGMENT_SHADER);
-    if (!fragShader.checkCompileError("../sdf_shader.glsl")) {
-      // if we did not get an error, re-assign the shader
-      delete sdfShader;
-          sdfShader = new ShaderProgram({vertShader, fragShader});
-      renderHitBuffers();
-      cout << "Done hit buffers" << endl;
-    }
+    renderHitBuffers();
+    cout << "Done hit buffers" << endl;
     glCheckError(__FILE__, __LINE__);
+
+    cout << "We made it..." << endl;
     
     // cout << "Entering recompile mode" << std::endl;
     // autoRecompile = !autoRecompile;
@@ -375,6 +374,11 @@ void HoloPlayContext::renderScene()
   // uniform layout locations not supported in 3.3, set manually
   colorShader->setUniform("posMatTex", 0);
   colorShader->setUniform("normalTex", 1);
+  glActiveTexture(GL_TEXTURE0 + 2);
+  glCheckError(__FILE__, __LINE__);
+  glBindTexture(GL_TEXTURE_2D, texture);
+  glCheckError(__FILE__, __LINE__);
+  colorShader->setUniform("customTex", 2);
   glDrawArrays(GL_TRIANGLES, 0, 6);
   glCheckError(__FILE__, __LINE__);
   colorShader->unuse();
@@ -555,6 +559,32 @@ bool HoloPlayContext::GetLookingGlassInfo()
   return true;
 }
 
+GLuint loadTextureByPath(const char* filePath) {
+  int width, height, nrChannels;
+  unsigned char* imageData = stbi_load(filePath, &width, &height, &nrChannels, 0);
+  if (!imageData) {
+    cout << "Failed to load rocky image." << endl;
+    exit(1);
+  }
+  
+  GLuint texID;
+  glGenTextures(1, &texID);
+  glBindTexture(GL_TEXTURE_2D, texID);
+
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB32F, width, height, 0, GL_RGB,
+               GL_UNSIGNED_BYTE, imageData);
+  stbi_image_free(imageData);
+
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+  glBindTexture(GL_TEXTURE_2D, 0);
+  return texID;
+}
+
+
 // setup fuctions
 // =========================================================
 void HoloPlayContext::initialize()
@@ -637,11 +667,11 @@ void HoloPlayContext::initialize()
   // unbind FBO
   glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
+
+  texture = loadTextureByPath("../images/rocky-small.jpg");
+
   /*
   TODO: get cubemap working
-  int width, height, nrChannels;
-  unsigned char* data = stbi_load("images/rocky-small.jpg", &width, &height, &nrChannels, 0);
-
   // load cubemap
   vector<std::string> faces = {
     "images/skybox/right.jpg",

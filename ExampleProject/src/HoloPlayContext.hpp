@@ -147,6 +147,7 @@ protected:
     // GLuint positionMaterialAttachment; // RGBA = 4f = 3f (xyz) + 1f (material_id)
     // GLuint normalAttachment; // RGBA, xyz wasting A
     GLuint hitAttachments[2];
+    GLuint texture;
     
     
 

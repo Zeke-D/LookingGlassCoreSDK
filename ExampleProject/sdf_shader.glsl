@@ -79,7 +79,7 @@ float leaf(vec3 point, float radius) {
     // p.y  *= 5.;
     //p.z = p.z - sqrt(p.x ) * .5;
     // p.y = p.y + .5 * pow(p.z, 1./3.);
-    return 20. * sdCone(rotateX(p, -.25 * TAU), vec2(radius, radius/2.), 2.);
+    return 20. * sdCone(p, vec2(radius, radius/2.), 2.);
     
 }
 
@@ -110,15 +110,7 @@ float oakTree(vec3 point, vec3 treeCenter) {
     return smin(branch2, smin(mainTree, branch1, .1 ), .1);
 }
 
-// returns distance from the model based on point query
-vec2 model(vec3 point) {
-
-
-    // ground
-    float grnd = ground(point);
-
-    
-    // mini trees
+float miniTrees(vec3 point) {
     vec2 scale = vec2(1);
     vec3 p = point;
     p.xz = (fract((scale * p.xz + vec2(.5))) - .5) / scale;
@@ -135,34 +127,46 @@ vec2 model(vec3 point) {
     // a l'il sway
     // p.x += p.y * .3 * sin(iTime + (.1 + treeCenter.x) * 320.1737 * treeCenter.z);
     p.x +=  .3 + .2* sin(treeCenter.z * 10. );
+    return sphere(p, radius) * 1.3;
+}
+
+float grassModel(vec3 point) {
+    vec2 scale = vec2(10.);
+    vec3 p = point;
+    p.xz = (fract((scale * p.xz + vec2(.5))) - .5) / scale;
+    vec3 grassCenter = point - p;
+    float radius = .05;
+    float groundDistAtGrassCenter = ground(grassCenter) - radius / 2.;
+    p.y += groundDistAtGrassCenter;
+    p.x += .02 * sin(30. * grassCenter.z);
+    p.xy *= 1.2;
+    p.y += .1 * sin(p.x * 30.);
+    return sphere(p, .002 + .15 * sin(.2 + point.x * point.y * point.z));
+}
+
+// returns distance from the model based on point query
+vec2 model(vec3 point) {
+
+
+    // ground
+    float grnd = ground(point);
     
-    float tree = sphere(p, radius) * 1.3;
+    // mini trees
+    float tree = miniTrees(point);
 
     // grass
-    scale = vec2(10.);
-    vec3 p2 = point;
-    p2.xz = (fract((scale * p2.xz + vec2(.5))) - .5) / scale;
-    vec3 grassCenter = point - p2;
-    radius = .05;
-    float groundDistAtGrassCenter = ground(grassCenter) - radius / 2.;
-    p2.y += groundDistAtGrassCenter;
-    p2.x += .02 * sin(30. * grassCenter.z);
-    // p2.xy *= 1.2;
-    p2.y += .03 * sin(p.x * 10.);
-    float grass = max(
-        sphere(p2, .002 + .15 * sin(.2 + point.x * point.y * point.z)),
-        sphere(vec3(p2.x, 0., p2.z), radius));
-
+    float grass = grassModel(point);
 
     // main tree
     vec3 mainTreeCenter = vec3(.2, 0., .3);
     float mainTree = oakTree(rotateY(point - mainTreeCenter, .3) + mainTreeCenter, mainTreeCenter);
 
     // leaves
+    vec3 canopyCenter = vec3(mainTreeCenter.x, .8, mainTreeCenter.z);
     vec3 lScale = vec3(10.);
     vec3 shift = vec3(
-        .05 * length(point - mainTreeCenter) + .25 * (.2-point.z),
-        .01 + .25 * point.x,
+        .05 * length(point - canopyCenter) + .25 * (.2-point.z),
+        .05 + .1 * sin(point.x * 3.) - .04 * sin(point.x * 10.52) - .05 * sin(point.z * 10.),
         0.
     );
     
@@ -171,12 +175,13 @@ vec2 model(vec3 point) {
     vec3 leafCenter = point - p3;
     vec3 canopyBoundsLoc = leafCenter - mainTreeCenter + shift;
     canopyBoundsLoc.y -= .8;
-    float canopyBounds = min(sphere(canopyBoundsLoc + vec3(-.1, .35, 0.1), .3), 
+    float canopyBounds = min(sphere(canopyBoundsLoc + vec3(-.1, .1, 0.1), .4), 
         min(sphere(canopyBoundsLoc + vec3(.4, .2, 0.), .3), sphere(canopyBoundsLoc, .4)));
+    // p3 *= 1. + .8 * sin(17.362 * leafCenter.z + 24.382* leafCenter.x + leafCenter.y * 28.123);
     // p3 = lookAt(p3, vec3(mainTreeCenter.x, -.4, mainTreeCenter.z));
-    // p3 *= 1. + .6 * sin(24.382* leafCenter.x + leafCenter.y * 462.123);
 
-    // p3 = rotateY(rotateX(p3, -.25 * TAU), TAU * 1. * normalize(dot(leafCenter - mainTreeCenter, vec3(mainTreeCenter.x, .4, mainTreeCenter.z) - mainTreeCenter)));
+    p3 = rotateX(p3, -.25 * TAU);
+    p3 = lookAt(p3, .1 * normalize(leafCenter - canopyCenter));
     float leaves = max(canopyBounds, leaf(p3, .02));
 
     
@@ -205,7 +210,8 @@ vec2 model(vec3 point) {
     else if (grass < grnd)                        mat = GRASS;
     
     
-    float d = min(leaves, smin(mainTree, min(grass, min(grnd, tree)), .4));
+    float d = smin(mainTree, min(grass, min(grnd, tree)), .4);
+    d = min(leaves, d);
 
     // TODO: Rain
     /*
