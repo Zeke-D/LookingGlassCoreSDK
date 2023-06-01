@@ -84,6 +84,9 @@ void HoloPlayContext::key_callback(GLFWwindow* window, int key, int scancode, in
     // cout << "Entering recompile mode" << std::endl;
     // autoRecompile = !autoRecompile;
   }
+  if (glfwGetKey(window, GLFW_KEY_TAB) == GLFW_PRESS) {
+    renderSwitch = (renderSwitch + 1) % 3;
+  }
 }
 
 // wrapper for getting mouse movement callback
@@ -374,6 +377,7 @@ void HoloPlayContext::renderScene()
   // uniform layout locations not supported in 3.3, set manually
   colorShader->setUniform("posMatTex", 0);
   colorShader->setUniform("normalTex", 1);
+  colorShader->setUniform("renderSwitch", renderSwitch);
   glActiveTexture(GL_TEXTURE0 + 2);
   glCheckError(__FILE__, __LINE__);
   glBindTexture(GL_TEXTURE_2D, texture);
@@ -590,6 +594,8 @@ GLuint loadTextureByPath(const char* filePath) {
 void HoloPlayContext::initialize()
 {
   autoRecompile = false;
+  renderSwitch = 0;
+
   cout << "[Info] initializing" << endl;
   glfwMakeContextCurrent(window);
   

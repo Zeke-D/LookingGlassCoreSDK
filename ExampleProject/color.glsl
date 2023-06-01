@@ -22,6 +22,7 @@ in vec2 texCoords;
 out vec4 fragColor;
 
 uniform float iTime;
+uniform int renderSwitch;
 uniform sampler2D posMatTex;
 uniform sampler2D normalTex;
 uniform sampler2D customTex;
@@ -98,7 +99,8 @@ vec3 scene(Hit hit) {
             deepBlue * .5, barkRed, .5 + lightContrib)
            + .8 * copper * pow(lightContrib, 4.) // soft specular
            ;
-        color *= texture(customTex, texCoords * texCoords).rgb;
+        color = mix(color, vec3(0), 1.5 * (1. - length(hit.position - vec3(.2, .8, .3))));
+        // color *= texture(customTex, texCoords * texCoords).rgb;
         // color *= vec3(.7, .5, 1.2);
         // color = mix(color, color * vec3(.6, .2, .8), sin(hit.position.y * 127. * hit.position.x) + sin(hit.position.x * 2010.));
     }
@@ -107,6 +109,7 @@ vec3 scene(Hit hit) {
     }
     else if (hit.material < LEAVES + .5) {
         color = mix(leafColorA, leafColorB, lightContrib);
+        color = mix(color, vec3(0), 1.2 * (1. - length(hit.position - vec3(.2, .8, .3))));
         color = mix(color, deepBlue * .7, 1.2 - 2. * hit.position.y);
     }
     else {
@@ -131,6 +134,15 @@ void main() {
 
     vec4 posMat = texture(posMatTex, texCoords);
     vec4 normal = texture(normalTex, texCoords);
+
+    if (renderSwitch == 1) {
+        fragColor = posMat;
+        return;
+    }
+    if (renderSwitch == 2) {
+        fragColor = normal;
+        return;
+    }
     
     Hit hit = Hit(posMat.rgb, normal.rgb, normal.a);
     vec3 col = scene(hit);

@@ -148,6 +148,8 @@ protected:
     // GLuint normalAttachment; // RGBA, xyz wasting A
     GLuint hitAttachments[2];
     GLuint texture;
+
+    int renderSwitch;
     
     
 
